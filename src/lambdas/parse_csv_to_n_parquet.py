@@ -164,7 +164,7 @@ def blocks_to_parquets(blocks, src_filename):
                     'portfolio': portfolio_name,
                     'metric_type': metric_type,
                     'value': val_float,
-                    'ingestion_date': str(ingestion_date)
+                    'ingestion_date': ingestion_date
                 })
         
         df = pd.DataFrame(data)
