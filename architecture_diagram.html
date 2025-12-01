@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dartmouth Fama-French ETL Architecture</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 1400px;
+        }
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            text-align: center;
+            color: #718096;
+            margin-bottom: 40px;
+            font-size: 1.2em;
+        }
+        svg {
+            width: 100%;
+            height: auto;
+        }
+        .stage-box {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .stage-box:hover {
+            filter: brightness(1.1);
+            transform: translateY(-2px);
+        }
+        .arrow {
+            transition: all 0.3s ease;
+        }
+        .stage-box:hover + .arrow {
+            stroke-width: 4;
+        }
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏗️ Dartmouth Fama-French ETL Architecture</h1>
+        <p class="subtitle">Serverless Data Pipeline for Financial Analytics</p>
+        
+        <svg viewBox="0 0 1200 1400" xmlns="http://www.w3.org/2000/svg">
+            <!-- Definitions for gradients and shadows -->
+            <defs>
+                <!-- Gradients -->
+                <linearGradient id="blueGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+                </linearGradient>
+                
+                <linearGradient id="greenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#48bb78;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#38a169;stop-opacity:1" />
+                </linearGradient>
+                
+                <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#ed8936;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#dd6b20;stop-opacity:1" />
+                </linearGradient>
+                
+                <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#9f7aea;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#805ad5;stop-opacity:1" />
+                </linearGradient>
+                
+                <linearGradient id="tealGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#38b2ac;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#319795;stop-opacity:1" />
+                </linearGradient>
+                
+                <linearGradient id="redGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#fc8181;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#f56565;stop-opacity:1" />
+                </linearGradient>
+                
+                <!-- Drop shadow -->
+                <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+                    <feOffset dx="0" dy="4" result="offsetblur"/>
+                    <feComponentTransfer>
+                        <feFuncA type="linear" slope="0.2"/>
+                    </feComponentTransfer>
+                    <feMerge>
+                        <feMergeNode/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+            
+            <!-- DATA SOURCE -->
+            <g class="stage-box">
+                <rect x="400" y="20" width="400" height="80" rx="10" fill="url(#redGrad)" filter="url(#shadow)"/>
+                <text x="600" y="50" text-anchor="middle" fill="white" font-size="20" font-weight="bold">📊 DATA SOURCE</text>
+                <text x="600" y="75" text-anchor="middle" fill="white" font-size="14">Fama-French Data Library</text>
+            </g>
+            
+            <!-- Arrow 1 -->
+            <g class="arrow">
+                <line x1="600" y1="100" x2="600" y2="150" stroke="#4a5568" stroke-width="3" marker-end="url(#arrowhead)"/>
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+                        <polygon points="0 0, 10 5, 0 10" fill="#4a5568" />
+                    </marker>
+                </defs>
+            </g>
+            
+            <!-- STAGE 1: DATA INGESTION -->
+            <g class="stage-box">
+                <rect x="50" y="150" width="1100" height="180" rx="15" fill="#f7fafc" stroke="#cbd5e0" stroke-width="2" filter="url(#shadow)"/>
+                <text x="600" y="185" text-anchor="middle" fill="#2d3748" font-size="18" font-weight="bold">⬇️ STAGE 1: DATA INGESTION</text>
+                
+                <!-- Lambda Box -->
+                <rect x="200" y="210" width="800" height="100" rx="10" fill="url(#blueGrad)" filter="url(#shadow)"/>
+                <text x="600" y="240" text-anchor="middle" fill="white" font-size="16" font-weight="bold">λ file_fetch.py</text>
+                <text x="600" y="260" text-anchor="middle" fill="white" font-size="12">• Scrapes website for ZIP files (2017+)</text>
+                <text x="600" y="280" text-anchor="middle" fill="white" font-size="12">• Downloads datasets to S3</text>
+                <text x="600" y="300" text-anchor="middle" fill="white" font-size="12">• Logs metadata with source URL, timestamp</text>
+            </g>
+            
+            <!-- Arrow 2 -->
+            <g class="arrow">
+                <line x1="600" y1="330" x2="600" y2="380" stroke="#4a5568" stroke-width="3" marker-end="url(#arrowhead)"/>
+            </g>
+            
+            <!-- STAGE 2: FILE EXTRACTION -->
+            <g class="stage-box">
+                <rect x="50" y="380" width="1100" height="180" rx="15" fill="#f7fafc" stroke="#cbd5e0" stroke-width="2" filter="url(#shadow)"/>
+                <text x="600" y="415" text-anchor="middle" fill="#2d3748" font-size="18" font-weight="bold">📦 STAGE 2: FILE EXTRACTION</text>
+                
+                <!-- Lambda Box -->
+                <rect x="200" y="440" width="800" height="100" rx="10" fill="url(#greenGrad)" filter="url(#shadow)"/>
+                <text x="600" y="470" text-anchor="middle" fill="white" font-size="16" font-weight="bold">λ extract_csv_from_zip.py</text>
+                <text x="600" y="490" text-anchor="middle" fill="white" font-size="12">• Unzips downloaded files</text>
+                <text x="600" y="510" text-anchor="middle" fill="white" font-size="12">• Extracts CSV files with naming convention</text>
+                <text x="600" y="530" text-anchor="middle" fill="white" font-size="12">• Uploads to S3 raw_data/csv/</text>
+            </g>
+            
+            <!-- Arrow 3 -->
+            <g class="arrow">
+                <line x1="600" y1="560" x2="600" y2="610" stroke="#4a5568" stroke-width="3" marker-end="url(#arrowhead)"/>
+            </g>
+            
+            <!-- STAGE 3: TRANSFORMATION -->
+            <g class="stage-box">
+                <rect x="50" y="610" width="1100" height="200" rx="15" fill="#f7fafc" stroke="#cbd5e0" stroke-width="2" filter="url(#shadow)"/>
+                <text x="600" y="645" text-anchor="middle" fill="#2d3748" font-size="18" font-weight="bold">🔄 STAGE 3: TRANSFORMATION</text>
+                
+                <!-- Lambda Box -->
+                <rect x="200" y="670" width="800" height="120" rx="10" fill="url(#orangeGrad)" filter="url(#shadow)"/>
+                <text x="600" y="700" text-anchor="middle" fill="white" font-size="16" font-weight="bold">λ parse_csv_to_n_parquet.py</text>
+                <text x="600" y="720" text-anchor="middle" fill="white" font-size="12">• Parses CSV blocks dynamically (no hardcoded metrics)</text>
+                <text x="600" y="740" text-anchor="middle" fill="white" font-size="12">• Transforms to long format (date, portfolio, metric, value)</text>
+                <text x="600" y="760" text-anchor="middle" fill="white" font-size="12">• Creates 6-10 Parquet files per source</text>
+                <text x="600" y="780" text-anchor="middle" fill="white" font-size="12">• Adds ingestion_date metadata for point-in-time analysis</text>
+            </g>
+            
+            <!-- Arrow 4 -->
+            <g class="arrow">
+                <line x1="600" y1="810" x2="600" y2="860" stroke="#4a5568" stroke-width="3" marker-end="url(#arrowhead)"/>
+            </g>
+            
+            <!-- STAGE 4: CATALOGING -->
+            <g class="stage-box">
+                <rect x="50" y="860" width="1100" height="180" rx="15" fill="#f7fafc" stroke="#cbd5e0" stroke-width="2" filter="url(#shadow)"/>
+                <text x="600" y="895" text-anchor="middle" fill="#2d3748" font-size="18" font-weight="bold">📋 STAGE 4: CATALOGING</text>
+                
+                <!-- Lambda Box -->
+                <rect x="200" y="920" width="800" height="100" rx="10" fill="url(#purpleGrad)" filter="url(#shadow)"/>
+                <text x="600" y="950" text-anchor="middle" fill="white" font-size="16" font-weight="bold">λ create_ingestion_map.py</text>
+                <text x="600" y="970" text-anchor="middle" fill="white" font-size="12">• Scans all Parquet files in S3</text>
+                <text x="600" y="990" text-anchor="middle" fill="white" font-size="12">• Extracts metadata (filename, date, record count)</text>
+                <text x="600" y="1010" text-anchor="middle" fill="white" font-size="12">• Creates data lineage table</text>
+            </g>
+            
+            <!-- Arrow 5 -->
+            <g class="arrow">
+                <line x1="600" y1="1040" x2="600" y2="1090" stroke="#4a5568" stroke-width="3" marker-end="url(#arrowhead)"/>
+            </g>
+            
+            <!-- STAGE 5: QUERY LAYER -->
+            <g class="stage-box">
+                <rect x="50" y="1090" width="1100" height="240" rx="15" fill="#f7fafc" stroke="#cbd5e0" stroke-width="2" filter="url(#shadow)"/>
+                <text x="600" y="1125" text-anchor="middle" fill="#2d3748" font-size="18" font-weight="bold">🔍 STAGE 5: QUERY LAYER (AWS Athena)</text>
+                
+                <!-- Four data objects -->
+                <g transform="translate(100, 1150)">
+                    <rect x="0" y="0" width="220" height="140" rx="8" fill="url(#tealGrad)" filter="url(#shadow)"/>
+                    <text x="110" y="30" text-anchor="middle" fill="white" font-size="14" font-weight="bold">📊 RAW_DATA</text>
+                    <text x="110" y="55" text-anchor="middle" fill="white" font-size="11">External Table</text>
+                    <text x="110" y="75" text-anchor="middle" fill="white" font-size="10">All historical data</text>
+                    <text x="110" y="95" text-anchor="middle" fill="white" font-size="10">with ingestion dates</text>
+                    <text x="110" y="115" text-anchor="middle" fill="white" font-size="10">Parquet format</text>
+                </g>
+                
+                <g transform="translate(350, 1150)">
+                    <rect x="0" y="0" width="220" height="140" rx="8" fill="url(#tealGrad)" filter="url(#shadow)"/>
+                    <text x="110" y="30" text-anchor="middle" fill="white" font-size="14" font-weight="bold">⏰ PIT_DATA</text>
+                    <text x="110" y="55" text-anchor="middle" fill="white" font-size="11">SQL View</text>
+                    <text x="110" y="75" text-anchor="middle" fill="white" font-size="10">Point-in-time view</text>
+                    <text x="110" y="95" text-anchor="middle" fill="white" font-size="10">Historical snapshots</text>
+                    <text x="110" y="115" text-anchor="middle" fill="white" font-size="10">Filter by date</text>
+                </g>
+                
+                <g transform="translate(600, 1150)">
+                    <rect x="0" y="0" width="220" height="140" rx="8" fill="url(#tealGrad)" filter="url(#shadow)"/>
+                    <text x="110" y="30" text-anchor="middle" fill="white" font-size="14" font-weight="bold">🎯 CURRENT_DATA</text>
+                    <text x="110" y="55" text-anchor="middle" fill="white" font-size="11">SQL View</text>
+                    <text x="110" y="75" text-anchor="middle" fill="white" font-size="10">Latest data only</text>
+                    <text x="110" y="95" text-anchor="middle" fill="white" font-size="10">Most recent ingestion</text>
+                    <text x="110" y="115" text-anchor="middle" fill="white" font-size="10">Production queries</text>
+                </g>
+                
+                <g transform="translate(850, 1150)">
+                    <rect x="0" y="0" width="220" height="140" rx="8" fill="url(#tealGrad)" filter="url(#shadow)"/>
+                    <text x="110" y="30" text-anchor="middle" fill="white" font-size="14" font-weight="bold">📋 INGESTION_MAP</text>
+                    <text x="110" y="55" text-anchor="middle" fill="white" font-size="11">External Table</text>
+                    <text x="110" y="75" text-anchor="middle" fill="white" font-size="10">Data lineage</text>
+                    <text x="110" y="95" text-anchor="middle" fill="white" font-size="10">File metadata</text>
+                    <text x="110" y="115" text-anchor="middle" fill="white" font-size="10">Audit trail</text>
+                </g>
+            </g>
+            
+            <!-- S3 Buckets on the side -->
+            <g transform="translate(1050, 200)">
+                <rect x="0" y="0" width="130" height="300" rx="8" fill="#fff5f5" stroke="#fc8181" stroke-width="2" filter="url(#shadow)"/>
+                <text x="65" y="30" text-anchor="middle" fill="#c53030" font-size="14" font-weight="bold">☁️ S3 Storage</text>
+                <text x="65" y="60" text-anchor="middle" fill="#742a2a" font-size="10">raw_data/</text>
+                <text x="65" y="80" text-anchor="middle" fill="#742a2a" font-size="10">└─ *.zip</text>
+                <text x="65" y="110" text-anchor="middle" fill="#742a2a" font-size="10">raw_data/csv/</text>
+                <text x="65" y="130" text-anchor="middle" fill="#742a2a" font-size="10">└─ *.CSV</text>
+                <text x="65" y="160" text-anchor="middle" fill="#742a2a" font-size="10">transformed_data/</text>
+                <text x="65" y="180" text-anchor="middle" fill="#742a2a" font-size="10">└─ *.parquet</text>
+                <text x="65" y="210" text-anchor="middle" fill="#742a2a" font-size="10">ingestion_map/</text>
+                <text x="65" y="230" text-anchor="middle" fill="#742a2a" font-size="10">└─ map.parquet</text>
+                <text x="65" y="260" text-anchor="middle" fill="#742a2a" font-size="10">athena_results/</text>
+                <text x="65" y="280" text-anchor="middle" fill="#742a2a" font-size="10">└─ query logs</text>
+            </g>
+            
+            <!-- Legend -->
+            <g transform="translate(50, 1350)">
+                <text x="0" y="0" fill="#2d3748" font-size="12" font-weight="bold">💡 Key Features:</text>
+                <text x="0" y="20" fill="#4a5568" font-size="10">• Serverless & Scalable</text>
+                <text x="180" y="20" fill="#4a5568" font-size="10">• Point-in-Time Analysis</text>
+                <text x="380" y="20" fill="#4a5568" font-size="10">• Data Lineage Tracking</text>
+                <text x="580" y="20" fill="#4a5568" font-size="10">• Columnar Storage (Parquet)</text>
+                <text x="820" y="20" fill="#4a5568" font-size="10">• Cost Optimized (~$5/month)</text>
+            </g>
+        </svg>
+    </div>
+</body>
+</html>
