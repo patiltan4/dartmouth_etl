@@ -1,0 +1,31 @@
+# ---- Node / General ----
+node_modules/
+dist/
+build/
+.DS_Store
+
+# ---- Environment Variables ----
+.env
+.env.*    # Ignore .env.development, .env.production, etc.
+
+# ---- Logs ----
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# ---- VS Code ----
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ---- OS Files ----
+Thumbs.db
+
+# ---- Python (if needed) ----
+__pycache__/
+*.pyc
