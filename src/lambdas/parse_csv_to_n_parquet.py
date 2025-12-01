@@ -121,12 +121,14 @@ def parse_ingestion_date(filename):
                 full_year = 1900 + year if year > 50 else 2000 + year
                 
                 if full_year < 2017:
+                    print(f"[WARN] File {filename} is before 2017 (year={full_year}), skipping")
                     return None
                 
                 date = datetime(full_year, month_num, 1)
                 date = date + relativedelta(months=1) - relativedelta(days=1)
                 return date.date()
     
+    print(f"[WARN] Could not extract date from filename: {filename}")
     return None
 
 def blocks_to_parquets(blocks, src_filename):
@@ -134,7 +136,7 @@ def blocks_to_parquets(blocks, src_filename):
     ingestion_date = parse_ingestion_date(src_filename)
     
     if ingestion_date is None:
-        print("[WARN] File before 2017, skipping")
+        print("[WARN] File before 2017 or invalid filename, skipping")
         return {}
     
     parquets = {}
@@ -156,7 +158,8 @@ def blocks_to_parquets(blocks, src_filename):
             for portfolio_name, val in zip(portfolio_names, values):
                 try:
                     val_float = float(val.strip()) if val and val.strip() else None
-                except:
+                except Exception as e:
+                    print(f"[WARN] Could not parse value '{val}' for {date_val}/{portfolio_name}: {e}")
                     val_float = None
                 
                 data.append({
@@ -167,6 +170,10 @@ def blocks_to_parquets(blocks, src_filename):
                     'ingestion_date': ingestion_date
                 })
         
+        if len(data) == 0:
+            print(f"[WARN] No data for metric {metric_type}, skipping")
+            continue
+            
         df = pd.DataFrame(data)
         # Ensure column order
         df = df[['date_format', 'portfolio', 'metric_type', 'value', 'ingestion_date']]
@@ -195,6 +202,13 @@ def lambda_handler(event, context):
                     if obj['Key'].endswith('.CSV'):
                         csv_files.append(obj['Key'])
         
+        if len(csv_files) == 0:
+            print("[WARN] No CSV files found")
+            return {
+                'statusCode': 200,
+                'message': 'No CSV files to process'
+            }
+        
         print(f"[LOG] Found {len(csv_files)} CSV files")
         
         all_parquets = []
@@ -202,39 +216,46 @@ def lambda_handler(event, context):
         for csv_key in csv_files:
             print(f"\n[LOG] Processing {csv_key}")
             
-            # Download CSV
-            response = s3_client.get_object(Bucket=bucket_name, Key=csv_key)
-            csv_content = response['Body'].read()
-            
-            filename = csv_key.split('/')[-1]
-            
-            # Parse blocks
-            blocks = parse_csv_blocks(csv_content, filename)
-            print(f"[LOG] Parsed {len(blocks)} blocks")
-            
-            if len(blocks) == 0:
-                print("[WARN] No blocks found, skipping")
-                continue
-            
-            # Convert to parquets
-            parquets = blocks_to_parquets(blocks, filename)
-            
-            if not parquets:
-                print("[WARN] File before 2017, skipping")
-                continue
-            
-            # Upload parquets
-            for metric_type, df in parquets.items():
-                s3_key = f"{output_folder}/{filename.replace('.CSV', '')}_{metric_type}.parquet"
+            try:
+                # Download CSV
+                response = s3_client.get_object(Bucket=bucket_name, Key=csv_key)
+                csv_content = response['Body'].read()
                 
-                print(f"[LOG] Uploading {s3_key} ({len(df)} rows)")
-                parquet_buffer = io.BytesIO()
-                df.to_parquet(parquet_buffer, index=False)
-                parquet_buffer.seek(0)
+                filename = csv_key.split('/')[-1]
                 
-                s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=parquet_buffer.getvalue())
-                all_parquets.append(s3_key)
-                print(f"[SUCCESS] {metric_type}")
+                # Parse blocks
+                blocks = parse_csv_blocks(csv_content, filename)
+                print(f"[LOG] Parsed {len(blocks)} blocks")
+                
+                if len(blocks) == 0:
+                    print("[WARN] No blocks found, skipping")
+                    continue
+                
+                # Convert to parquets
+                parquets = blocks_to_parquets(blocks, filename)
+                
+                if not parquets:
+                    print("[WARN] No parquets generated, skipping")
+                    continue
+                
+                # Upload parquets
+                for metric_type, df in parquets.items():
+                    s3_key = f"{output_folder}/{filename.replace('.CSV', '')}_{metric_type}.parquet"
+                    
+                    print(f"[LOG] Uploading {s3_key} ({len(df)} rows)")
+                    parquet_buffer = io.BytesIO()
+                    df.to_parquet(parquet_buffer, index=False)
+                    parquet_buffer.seek(0)
+                    
+                    s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=parquet_buffer.getvalue())
+                    all_parquets.append(s3_key)
+                    print(f"[SUCCESS] {metric_type}")
+                    
+            except Exception as e:
+                print(f"[ERROR] Failed to process {csv_key}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                continue  # Continue with next file
         
         print(f"\n[SUMMARY] Created {len(all_parquets)} parquet files")
         return {

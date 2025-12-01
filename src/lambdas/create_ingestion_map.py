@@ -3,6 +3,7 @@ import pandas as pd
 import io
 from datetime import datetime
 import re
+from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
 import os
 
@@ -10,10 +11,10 @@ dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
 load_dotenv(dotenv_path)
 
 def extract_metadata_from_filename(filename):
-    """Extract ingestion date and metric from filename"""
+    """Extract ingestion date, source filename, and metric from parquet filename"""
     # Example: july17_6_Portfolios_2x3_value_weighted_return.parquet
     
-    # Extract month and year
+    # Extract month and year for ingestion date
     months = {
         'january': 1, 'february': 2, 'march': 3, 'april': 4,
         'may': 5, 'june': 6, 'july': 7, 'august': 8,
@@ -30,25 +31,35 @@ def extract_metadata_from_filename(filename):
                 year = int(year_match.group(1))
                 full_year = 1900 + year if year > 50 else 2000 + year
                 
-                from dateutil.relativedelta import relativedelta
                 date = datetime(full_year, month_num, 1)
                 date = date + relativedelta(months=1) - relativedelta(days=1)
                 ingestion_date = date.date()
                 break
     
-    # Extract metric type (last part before .parquet)
-    metric_type = filename.replace('.parquet', '').split('_')
-    # Find where metric starts (after the portfolio pattern)
-    if '2x3' in filename:
-        metric_start = filename.index('2x3') + 4
-        metric_type = filename[metric_start:].replace('.parquet', '')
-    else:
-        metric_type = 'unknown'
+    # Extract metric type (everything after the last underscore before .parquet)
+    # Split by common metric patterns
+    metric_patterns = [
+        '_value_weight', '_equal_weight', '_number_', '_average_',
+        '_sum_', '_net_stock'
+    ]
     
-    # Extract source filename
-    src_filename = filename.split('_value_')[0].split('_equal_')[0].split('_number_')[0].split('_average_')[0].split('_sum_')[0]
-    if not src_filename.endswith('.CSV'):
-        src_filename = src_filename + '.CSV'
+    metric_type = 'unknown'
+    for pattern in metric_patterns:
+        if pattern in filename_lower:
+            idx = filename_lower.index(pattern) + 1  # +1 to skip the underscore
+            metric_type = filename[idx:].replace('.parquet', '')
+            break
+    
+    # Extract source filename (everything before the metric type)
+    src_filename = filename
+    for pattern in metric_patterns:
+        if pattern in filename_lower:
+            src_filename = filename[:filename_lower.index(pattern)]
+            break
+    
+    # Add .CSV extension if not present
+    if not src_filename.upper().endswith('.CSV'):
+        src_filename = src_filename.rstrip('_') + '.CSV'
     
     return src_filename, ingestion_date, metric_type
 
@@ -72,6 +83,13 @@ def lambda_handler(event, context):
                     if obj['Key'].endswith('.parquet'):
                         parquet_files.append(obj)
         
+        if len(parquet_files) == 0:
+            print("[WARN] No parquet files found")
+            return {
+                'statusCode': 200,
+                'message': 'No parquet files to process'
+            }
+        
         print(f"[LOG] Found {len(parquet_files)} parquet files")
         
         map_data = []
@@ -82,15 +100,29 @@ def lambda_handler(event, context):
             
             print(f"[LOG] Processing {filename}")
             
-            # Download and read parquet to get record count
-            response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
-            parquet_content = response['Body'].read()
-            
-            df = pd.read_parquet(io.BytesIO(parquet_content))
-            record_count = len(df)
+            try:
+                # Download and read parquet to get record count
+                response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+                parquet_content = response['Body'].read()
+                
+                df = pd.read_parquet(io.BytesIO(parquet_content))
+                record_count = len(df)
+                status = 'success'
+                
+            except Exception as e:
+                print(f"[ERROR] Failed to read {filename}: {e}")
+                record_count = 0
+                status = 'failed'
             
             # Extract metadata from filename
-            src_filename, ingestion_date, metric_type = extract_metadata_from_filename(filename)
+            try:
+                src_filename, ingestion_date, metric_type = extract_metadata_from_filename(filename)
+            except Exception as e:
+                print(f"[ERROR] Failed to extract metadata from {filename}: {e}")
+                src_filename = filename
+                ingestion_date = datetime.now().date()
+                metric_type = 'unknown'
+                status = 'metadata_extraction_failed'
             
             map_data.append({
                 'src_filename': src_filename,
@@ -99,13 +131,24 @@ def lambda_handler(event, context):
                 'file_path': f's3://{bucket_name}/{file_key}',
                 'record_count': record_count,
                 'metric_type': metric_type,
-                'status': 'success'
+                'status': status
             })
             
-            print(f"[LOG] {filename}: {record_count} records, ingestion_date={ingestion_date}")
+            print(f"[LOG] {filename}: {record_count} records, ingestion_date={ingestion_date}, metric={metric_type}")
+        
+        if len(map_data) == 0:
+            print("[WARN] No metadata extracted")
+            return {
+                'statusCode': 200,
+                'message': 'No metadata to write'
+            }
         
         # Create DataFrame and write to S3
         map_df = pd.DataFrame(map_data)
+        
+        # Ensure proper data types
+        map_df['ingestion_date'] = pd.to_datetime(map_df['ingestion_date'])
+        map_df['upload_timestamp'] = pd.to_datetime(map_df['upload_timestamp'])
         
         output_key = f"{output_folder}/ingestion_map.parquet"
         parquet_buffer = io.BytesIO()
@@ -117,10 +160,18 @@ def lambda_handler(event, context):
         print(f"[LOG] Ingestion map written to {output_key}")
         print(f"[LOG] Total entries: {len(map_data)}")
         
+        # Print summary
+        print("\n[SUMMARY]")
+        print(f"Total parquet files: {len(parquet_files)}")
+        print(f"Successfully processed: {sum(1 for x in map_data if x['status'] == 'success')}")
+        print(f"Failed: {sum(1 for x in map_data if x['status'] != 'success')}")
+        print(f"Total records: {sum(x['record_count'] for x in map_data)}")
+        
         return {
             'statusCode': 200,
             'message': f'Created ingestion map with {len(map_data)} entries',
-            'output_path': f's3://{bucket_name}/{output_key}'
+            'output_path': f's3://{bucket_name}/{output_key}',
+            'total_records': sum(x['record_count'] for x in map_data)
         }
     
     except Exception as e:
