@@ -451,58 +451,6 @@ ORDER BY upload_timestamp DESC;
 
 ---
 
-## 💰 Cost Optimization
-
-### Current Optimization Strategies
-
-1. **Parquet Format**
-   - 80% smaller than CSV
-   - Columnar scanning reduces query costs
-
-2. **Serverless Architecture**
-   - No idle infrastructure
-   - Pay only for execution time
-
-3. **Partitioning** (Future)
-   - Partition by year/month
-   - Reduce data scanned per query
-
-4. **Data Lifecycle**
-   - Archive old raw ZIP files to Glacier
-   - Keep transformed data in S3 Standard
-
-### Estimated Costs (Monthly)
-
-| Component | Usage | Cost |
-|-----------|-------|------|
-| S3 Storage | 1 GB | $0.02 |
-| Lambda | 100 invocations | $0.00 |
-| Athena | 10 queries (1 GB scanned) | $0.05 |
-| **Total** | | **< $0.10** |
-
----
-
-## 🚀 Future Enhancements
-
-### Phase 2
-- [ ] AWS Step Functions orchestration
-- [ ] Automated scheduling (EventBridge)
-- [ ] Data quality checks (Great Expectations)
-- [ ] Alerting (SNS/CloudWatch)
-
-### Phase 3
-- [ ] Real-time streaming (Kinesis)
-- [ ] Machine learning features (SageMaker)
-- [ ] Dashboard (QuickSight/Tableau)
-- [ ] API Gateway for programmatic access
-
-### Phase 4
-- [ ] Multi-region replication
-- [ ] Disaster recovery
-- [ ] Advanced partitioning strategies
-- [ ] Query result caching
-
----
 
 ## 📚 Resources
 
@@ -517,7 +465,7 @@ ORDER BY upload_timestamp DESC;
 
 ## 👥 Contributors
 
-- YTanmay
+- Tanmay
 
 ---
 
@@ -527,7 +475,5 @@ ORDER BY upload_timestamp DESC;
 - AWS for serverless infrastructure
 - Apache Parquet community
 
----
-
-**⭐ If this project helped you, please star it on GitHub!**
+--
 
