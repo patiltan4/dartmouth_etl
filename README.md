@@ -45,7 +45,8 @@ Portfolio managers and financial analysts need historical performance data for:
 
 ## 🏗️ Architecture
 
-![Architecture Diagram](./docs/architecture_diagram.png)
+<img width="667" height="618" alt="image" src="https://github.com/user-attachments/assets/7299094e-dac8-423c-9065-a9ba2124edfd" />
+
 
 ### Pipeline Stages
 
@@ -529,3 +530,4 @@ ORDER BY upload_timestamp DESC;
 ---
 
 **⭐ If this project helped you, please star it on GitHub!**
+
