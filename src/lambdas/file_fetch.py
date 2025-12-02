@@ -3,13 +3,17 @@ import urllib.parse
 from html.parser import HTMLParser
 import boto3
 import os
-from dotenv import load_dotenv
 from datetime import datetime
-import getpass
-import platform
 import hashlib
 
-load_dotenv()
+# Try to load dotenv for local development, but don't fail if not available
+try:
+    from dotenv import load_dotenv
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    load_dotenv(dotenv_path)
+    print("[LOG] Running locally with .env file")
+except ImportError:
+    print("[LOG] Running in Lambda with environment variables")
 
 class DatasetParser(HTMLParser):
     def __init__(self):
@@ -65,12 +69,27 @@ def generate_unique_filename(source_url):
     print(f"[LOG] Generated filename: {filename}")
     return filename
 
+def get_s3_client():
+    """Returns appropriate S3 client based on environment"""
+    # Check if running in Lambda
+    if os.getenv('AWS_LAMBDA_FUNCTION_NAME'):
+        # Lambda - use IAM role only
+        print("[LOG] Using IAM role for S3 access")
+        return boto3.client('s3')
+    else:
+        # Local - use credentials if available
+        print("[LOG] Running locally, checking for credentials")
+        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if aws_key and aws_secret:
+            print("[LOG] Using credentials from environment variables")
+            return boto3.client('s3', aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
+        else:
+            print("[LOG] Using default AWS configuration")
+            return boto3.client('s3')
+
 def download_to_s3(url, bucket_name, folder_name, unique_filename, source_url):
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-    )
+    s3_client = get_s3_client()
     
     try:
         print(f"[LOG] Downloading from {source_url}")
@@ -83,34 +102,37 @@ def download_to_s3(url, bucket_name, folder_name, unique_filename, source_url):
         s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=file_data)
         print(f"[SUCCESS] Uploaded to s3://{bucket_name}/{s3_key}")
         
+        # Detect if running in Lambda or locally
+        ingested_by = os.getenv('AWS_LAMBDA_FUNCTION_NAME', 'local-user')
+        system = 'aws-lambda' if os.getenv('AWS_LAMBDA_FUNCTION_NAME') else 'local'
+        
         return {
             "source_url": source_url,
             "unique_filename": unique_filename,
             "s3_path": s3_key,
             "ingestion_time": datetime.now().isoformat(),
-            "ingested_by": getpass.getuser(),
-            "system": platform.system(),
+            "ingested_by": ingested_by,
+            "system": system,
             "status": "success"
         }
         
     except Exception as e:
         print(f"[ERROR] {str(e)}")
+        ingested_by = os.getenv('AWS_LAMBDA_FUNCTION_NAME', 'local-user')
+        system = 'aws-lambda' if os.getenv('AWS_LAMBDA_FUNCTION_NAME') else 'local'
+        
         return {
             "source_url": source_url,
             "unique_filename": unique_filename,
             "s3_path": "",
             "ingestion_time": datetime.now().isoformat(),
-            "ingested_by": getpass.getuser(),
-            "system": platform.system(),
+            "ingested_by": ingested_by,
+            "system": system,
             "status": f"failed: {str(e)}"
         }
 
 def log_to_s3(metadata_list, bucket_name):
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-    )
+    s3_client = get_s3_client()
     
     log_filename = f"ingestion_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     log_key = f"logs/download_logs/{log_filename}"
@@ -127,21 +149,30 @@ def log_to_s3(metadata_list, bucket_name):
     s3_client.put_object(Bucket=bucket_name, Key=log_key, Body=csv_content)
     print(f"[SUCCESS] Logged to s3://{bucket_name}/{log_key}")
 
-# Main execution
-print("[START] Dartmouth Fama-French Data Pipeline")
-url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/six_portfolios_archive.html"
-base_url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/"
+def lambda_handler(event, context):
+    print("[START] Dartmouth Fama-French Data Pipeline")
+    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/six_portfolios_archive.html"
+    base_url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/"
 
-datasets = fetch_datasets(url)
-metadata_list = []
+    datasets = fetch_datasets(url)
+    metadata_list = []
 
-for i, dataset in enumerate(datasets, 1):
-    print(f"\n[PROCESSING] Dataset {i}/{len(datasets)}")
-    source_url = base_url + dataset["url"]
-    unique_filename = generate_unique_filename(source_url)
-    metadata = download_to_s3(source_url, "dartmouth-etl", "raw_data", unique_filename, source_url)
-    metadata_list.append(metadata)
+    for i, dataset in enumerate(datasets, 1):
+        print(f"\n[PROCESSING] Dataset {i}/{len(datasets)}")
+        source_url = base_url + dataset["url"]
+        unique_filename = generate_unique_filename(source_url)
+        metadata = download_to_s3(source_url, "dartmouth-etl", "raw_data", unique_filename, source_url)
+        metadata_list.append(metadata)
 
-print(f"\n[LOG] Total datasets processed: {len(metadata_list)}")
-log_to_s3(metadata_list, "dartmouth-etl")
-print("[END] Pipeline completed")
+    print(f"\n[LOG] Total datasets processed: {len(metadata_list)}")
+    log_to_s3(metadata_list, "dartmouth-etl")
+    print("[END] Pipeline completed")
+    
+    return {
+        'statusCode': 200,
+        'body': f'Processed {len(metadata_list)} datasets'
+    }
+
+# For local testing
+if __name__ == "__main__":
+    lambda_handler({}, {})

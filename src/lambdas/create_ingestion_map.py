@@ -4,11 +4,38 @@ import io
 from datetime import datetime
 import re
 from dateutil.relativedelta import relativedelta
-from dotenv import load_dotenv
 import os
 
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-load_dotenv(dotenv_path)
+# Try to load dotenv for local development, but don't fail if not available
+try:
+    from dotenv import load_dotenv
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    load_dotenv(dotenv_path)
+    print("[LOG] Running locally with .env file")
+except ImportError:
+    print("[LOG] Running in Lambda with environment variables")
+
+def get_s3_client():
+    """Returns appropriate S3 client based on environment"""
+    is_lambda = (
+        os.getenv('AWS_LAMBDA_FUNCTION_NAME') or 
+        os.getenv('AWS_EXECUTION_ENV') or 
+        os.getenv('LAMBDA_TASK_ROOT')
+    )
+    
+    if is_lambda:
+        print("[LOG] Detected Lambda environment - Using IAM role for S3 access")
+        return boto3.client('s3')
+    else:
+        print("[LOG] Running locally, checking for credentials")
+        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if aws_key and aws_secret:
+            print("[LOG] Using credentials from environment variables")
+            return boto3.client('s3', aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
+        else:
+            print("[LOG] Using default AWS configuration")
+            return boto3.client('s3')
 
 def extract_metadata_from_filename(filename):
     """Extract ingestion date, source filename, and metric from parquet filename"""
@@ -64,7 +91,7 @@ def extract_metadata_from_filename(filename):
     return src_filename, ingestion_date, metric_type
 
 def lambda_handler(event, context):
-    s3_client = boto3.client('s3')
+    s3_client = get_s3_client()
     bucket_name = "dartmouth-etl"
     transformed_folder = "transformed_data"
     output_folder = "ingestion_map"
@@ -180,6 +207,7 @@ def lambda_handler(event, context):
         traceback.print_exc()
         return {'statusCode': 500, 'body': str(e)}
 
+# Run locally for testing
 if __name__ == "__main__":
     result = lambda_handler({}, {})
     print(result)

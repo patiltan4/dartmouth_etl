@@ -4,22 +4,64 @@ import io
 from datetime import datetime
 import re
 from dateutil.relativedelta import relativedelta
-from dotenv import load_dotenv
 import os
+import time
 
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-load_dotenv(dotenv_path)
+# Try to load dotenv for local development, but don't fail if not available
+try:
+    from dotenv import load_dotenv
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    load_dotenv(dotenv_path)
+    print("[LOG] Running locally with .env file")
+except ImportError:
+    print("[LOG] Running in Lambda with environment variables")
+
+def get_s3_client():
+    """Returns appropriate S3 client based on environment"""
+    is_lambda = (
+        os.getenv('AWS_LAMBDA_FUNCTION_NAME') or 
+        os.getenv('AWS_EXECUTION_ENV') or 
+        os.getenv('LAMBDA_TASK_ROOT')
+    )
+    
+    if is_lambda:
+        print("[LOG] Detected Lambda environment - Using IAM role for S3 access")
+        return boto3.client('s3')
+    else:
+        print("[LOG] Running locally, checking for credentials")
+        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if aws_key and aws_secret:
+            print("[LOG] Using credentials from environment variables")
+            return boto3.client('s3', aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
+        else:
+            print("[LOG] Using default AWS configuration")
+            return boto3.client('s3')
+
+def get_athena_client():
+    """Returns appropriate Athena client based on environment"""
+    is_lambda = (
+        os.getenv('AWS_LAMBDA_FUNCTION_NAME') or 
+        os.getenv('AWS_EXECUTION_ENV') or 
+        os.getenv('LAMBDA_TASK_ROOT')
+    )
+    
+    if is_lambda:
+        return boto3.client('athena')
+    else:
+        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if aws_key and aws_secret:
+            return boto3.client('athena', aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
+        else:
+            return boto3.client('athena')
 
 def clean_metric_name(text):
     """Convert metric description to clean snake_case name"""
-    # Remove common words and clean up
     text = text.lower().strip()
-    
-    # Remove special characters and replace spaces/dashes with underscore
     text = re.sub(r'[^\w\s-]', '', text)
     text = re.sub(r'[-\s]+', '_', text)
     
-    # Remove common filler words
     filler_words = ['the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'for']
     words = text.split('_')
     words = [w for w in words if w not in filler_words and w]
@@ -37,13 +79,10 @@ def parse_csv_blocks(csv_content, src_filename):
     block_count = 0
     
     while i < len(lines):
-        # Look for header line (starts with ,SMALL)
         metric_description = None
         
-        # Capture any non-empty, non-data lines before header as metric description
         while i < len(lines) and not lines[i].startswith(',SMALL'):
             line = lines[i].strip()
-            # If non-empty and not a data line, could be metric description
             if line and not re.match(r'^\s*\d{4,6},', lines[i]):
                 metric_description = line
             i += 1
@@ -51,12 +90,10 @@ def parse_csv_blocks(csv_content, src_filename):
         if i >= len(lines):
             break
         
-        # Found header line
         header_row = lines[i].strip()
         cols = [col.strip() for col in header_row.split(',')]
         cols[0] = 'DATE'
         
-        # Generate metric name from description
         if metric_description:
             metric_type = clean_metric_name(metric_description)
         else:
@@ -67,18 +104,14 @@ def parse_csv_blocks(csv_content, src_filename):
         print(f"[LOG] Header at line {i}: {cols}")
         i += 1
         
-        # Capture data rows until blank line OR end of file
-        # Data rows start with optional spaces then YYYY (4 digits) or YYYYMM (6 digits)
         data_rows = []
         start_line = i
         while i < len(lines):
             line = lines[i].strip()
             
-            # Blank line means block ended
             if line == '':
                 break
             
-            # Data row (optional spaces, then YYYY or YYYYMM, then comma)
             if re.match(r'^\s*\d{4,6},', lines[i]):
                 data_rows.append(lines[i].strip())
             
@@ -145,16 +178,14 @@ def blocks_to_parquets(blocks, src_filename):
         metric_type = block['metric_type']
         columns = block['columns']
         
-        # Get portfolio names from header (skip DATE column)
         portfolio_names = [col.lower().replace(' ', '_') for col in columns[1:]]
         
         data = []
         for row in block['data_rows']:
             parts = row.split(',')
             date_val = parts[0].strip()
-            values = parts[1:]  # All value columns
+            values = parts[1:]
             
-            # Create one row per portfolio
             for portfolio_name, val in zip(portfolio_names, values):
                 try:
                     val_float = float(val.strip()) if val and val.strip() else None
@@ -167,7 +198,8 @@ def blocks_to_parquets(blocks, src_filename):
                     'portfolio': portfolio_name,
                     'metric_type': metric_type,
                     'value': val_float,
-                    'ingestion_date': ingestion_date
+                    'ingestion_date': ingestion_date,
+                    'src_filename': src_filename
                 })
         
         if len(data) == 0:
@@ -175,15 +207,110 @@ def blocks_to_parquets(blocks, src_filename):
             continue
             
         df = pd.DataFrame(data)
-        # Ensure column order
-        df = df[['date_format', 'portfolio', 'metric_type', 'value', 'ingestion_date']]
+        df = df[['date_format', 'portfolio', 'metric_type', 'value', 'ingestion_date', 'src_filename']]
         print(f"[LOG] {metric_type}: DataFrame has {len(df)} rows")
         parquets[metric_type] = df
     
     return parquets
 
+def execute_athena_query(athena_client, query, database='dartmouth_db'):
+    """Execute Athena query and return results"""
+    output_location = 's3://dartmouth-etl/athena-results/'
+    
+    print(f"[LOG] Executing Athena query: {query}")
+    
+    response = athena_client.start_query_execution(
+        QueryString=query,
+        QueryExecutionContext={'Database': database},
+        ResultConfiguration={'OutputLocation': output_location}
+    )
+    
+    query_execution_id = response['QueryExecutionId']
+    print(f"[LOG] Query execution ID: {query_execution_id}")
+    
+    # Wait for query to complete
+    max_attempts = 30
+    for attempt in range(max_attempts):
+        response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
+        status = response['QueryExecution']['Status']['State']
+        
+        if status == 'SUCCEEDED':
+            print("[LOG] Query succeeded")
+            break
+        elif status in ['FAILED', 'CANCELLED']:
+            reason = response['QueryExecution']['Status'].get('StateChangeReason', 'Unknown')
+            print(f"[ERROR] Query {status}: {reason}")
+            return None
+        
+        time.sleep(2)
+    
+    # Get results
+    result = athena_client.get_query_results(QueryExecutionId=query_execution_id)
+    return result
+
+def check_if_already_processed(athena_client, src_filename):
+    """Check if file already processed using Athena table"""
+    query = f"""
+    SELECT COUNT(*) as count 
+    FROM dartmouth_db.data_ingestion_map 
+    WHERE src_filename = '{src_filename}' 
+    AND status = 'success'
+    """
+    
+    result = execute_athena_query(athena_client, query)
+    
+    if result and 'ResultSet' in result:
+        rows = result['ResultSet']['Rows']
+        if len(rows) > 1:  # Skip header row
+            count = int(rows[1]['Data'][0]['VarCharValue'])
+            if count > 0:
+                print(f"[INFO] File {src_filename} already processed ({count} records found)")
+                return True
+    
+    return False
+
+def log_to_ingestion_map(s3_client, src_filename, ingestion_date, parquet_files):
+    """Log processing metadata to ingestion map table"""
+    bucket_name = "dartmouth-etl"
+    map_folder = "ingestion_map"
+    
+    records = []
+    for parquet_path in parquet_files:
+        # Extract metric_type from parquet filename
+        metric_type = parquet_path.split('_')[-1].replace('.parquet', '')
+        
+        records.append({
+            'src_filename': src_filename,
+            'ingestion_date': str(ingestion_date),
+            'upload_timestamp': datetime.now().isoformat(),
+            'file_path': parquet_path,
+            'record_count': 0,  # Can be calculated if needed
+            'metric_type': metric_type,
+            'status': 'success'
+        })
+    
+    if not records:
+        return
+    
+    # Convert to DataFrame and save as parquet
+    df = pd.DataFrame(records)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    map_key = f"{map_folder}/ingestion_{src_filename.replace('.CSV', '')}_{timestamp}.parquet"
+    
+    print(f"[LOG] Logging {len(records)} records to ingestion map: {map_key}")
+    
+    parquet_buffer = io.BytesIO()
+    df.to_parquet(parquet_buffer, index=False)
+    parquet_buffer.seek(0)
+    
+    s3_client.put_object(Bucket=bucket_name, Key=map_key, Body=parquet_buffer.getvalue())
+    print(f"[SUCCESS] Logged to ingestion map")
+
 def lambda_handler(event, context):
-    s3_client = boto3.client('s3')
+    s3_client = get_s3_client()
+    athena_client = get_athena_client()
+    
     bucket_name = "dartmouth-etl"
     csv_folder = "raw_data/csv"
     output_folder = "transformed_data"
@@ -212,16 +339,22 @@ def lambda_handler(event, context):
         print(f"[LOG] Found {len(csv_files)} CSV files")
         
         all_parquets = []
+        skipped_count = 0
         
         for csv_key in csv_files:
             print(f"\n[LOG] Processing {csv_key}")
             
             try:
+                filename = csv_key.split('/')[-1]
+                
+                # Check if already processed using Athena
+                if check_if_already_processed(athena_client, filename):
+                    skipped_count += 1
+                    continue
+                
                 # Download CSV
                 response = s3_client.get_object(Bucket=bucket_name, Key=csv_key)
                 csv_content = response['Body'].read()
-                
-                filename = csv_key.split('/')[-1]
                 
                 # Parse blocks
                 blocks = parse_csv_blocks(csv_content, filename)
@@ -238,6 +371,10 @@ def lambda_handler(event, context):
                     print("[WARN] No parquets generated, skipping")
                     continue
                 
+                # Get ingestion date for logging
+                ingestion_date = parse_ingestion_date(filename)
+                file_parquets = []
+                
                 # Upload parquets
                 for metric_type, df in parquets.items():
                     s3_key = f"{output_folder}/{filename.replace('.CSV', '')}_{metric_type}.parquet"
@@ -249,19 +386,24 @@ def lambda_handler(event, context):
                     
                     s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=parquet_buffer.getvalue())
                     all_parquets.append(s3_key)
+                    file_parquets.append(s3_key)
                     print(f"[SUCCESS] {metric_type}")
+                
+                # Log to ingestion map
+                log_to_ingestion_map(s3_client, filename, ingestion_date, file_parquets)
                     
             except Exception as e:
                 print(f"[ERROR] Failed to process {csv_key}: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                continue  # Continue with next file
+                continue
         
-        print(f"\n[SUMMARY] Created {len(all_parquets)} parquet files")
+        print(f"\n[SUMMARY] Created {len(all_parquets)} parquet files, skipped {skipped_count} already processed")
         return {
             'statusCode': 200,
             'parquet_files': all_parquets,
-            'count': len(all_parquets)
+            'count': len(all_parquets),
+            'skipped': skipped_count
         }
     
     except Exception as e:
@@ -270,6 +412,7 @@ def lambda_handler(event, context):
         traceback.print_exc()
         return {'statusCode': 500, 'body': str(e)}
 
+# Run locally for testing
 if __name__ == "__main__":
     result = lambda_handler({}, {})
     print(result)

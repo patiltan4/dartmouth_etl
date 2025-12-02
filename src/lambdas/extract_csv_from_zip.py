@@ -4,18 +4,43 @@ import io
 from datetime import datetime
 import re
 import os
-from dotenv import load_dotenv
 
+# Try to load dotenv for local development, but don't fail if not available
+try:
+    from dotenv import load_dotenv
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    load_dotenv(dotenv_path)
+    print("[LOG] Running locally with .env file")
+except ImportError:
+    print("[LOG] Running in Lambda with environment variables")
 
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-load_dotenv(dotenv_path)
+def get_s3_client():
+    """Returns appropriate S3 client based on environment"""
+    # Check multiple Lambda environment indicators
+    is_lambda = (
+        os.getenv('AWS_LAMBDA_FUNCTION_NAME') or 
+        os.getenv('AWS_EXECUTION_ENV') or 
+        os.getenv('LAMBDA_TASK_ROOT')
+    )
+    
+    if is_lambda:
+        # Lambda - use IAM role only
+        print("[LOG] Detected Lambda environment - Using IAM role for S3 access")
+        return boto3.client('s3')
+    else:
+        # Local - use credentials if available
+        print("[LOG] Running locally, checking for credentials")
+        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if aws_key and aws_secret:
+            print("[LOG] Using credentials from environment variables")
+            return boto3.client('s3', aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
+        else:
+            print("[LOG] Using default AWS configuration")
+            return boto3.client('s3')
 
 def lambda_handler(event, context):
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-    )
+    s3_client = get_s3_client()
     
     bucket_name = "dartmouth-etl"
     raw_data_folder = "raw_data"
@@ -54,7 +79,6 @@ def lambda_handler(event, context):
             year_match = re.search(r'(\d{4})', zip_key)
             year_suffix = year_match.group(1)[-2:] if year_match else "00"
             
-         
             month_prefix = "july"
             
             prefix = f"{month_prefix}{year_suffix}_"
